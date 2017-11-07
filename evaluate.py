@@ -6,6 +6,7 @@ from scipy import misc
 from train import build_forward
 from utils.annolist import AnnotationLib as al
 from utils.train_utils import add_rectangles, rescale_boxes
+from shapely.geometry import MultiPolygon, box
 
 def get_image_dir(args):
     weights_iteration = int(args.weights.split('-')[-1])
@@ -21,8 +22,8 @@ def get_metrics(gt_boxes, pred_boxes):
 
     # Create the RTree out of the ground truth boxes
     idx = rtree.index.Index()
-    for i, rect in enumerate(gt_boxes):
-        idx.insert(i, tuple(rect))
+    for j, rect in enumerate(gt_boxes):
+        idx.insert(j, tuple(rect))
 
     gt_mp = MultiPolygon([box(*b) for b in gt_boxes])
     pred_mp = MultiPolygon([box(*b) for b in pred_boxes])
@@ -43,13 +44,14 @@ def get_metrics(gt_boxes, pred_boxes):
                 best_idx = gt_idx
             if intersection > best_overlap:
                 best_overlap = intersection
-        if best_idx is None or best_jaccard < 0.25:
+        if best_idx is None or best_jaccard <= 0.00000000000001:
             false_positives += 1
         else:
+            idx.delete(best_idx, gt_boxes[best_idx])
             true_positives += 1
         total_overlap = best_overlap
     total_jaccard = total_overlap / (gt_mp.area + pred_mp.area - total_overlap) if len(gt_boxes) > 0 else None
-    false_negatives = idx.count((0,0,500,500))
+    false_negatives = len(gt_boxes) - true_positives
     return false_positives, false_negatives, true_positives, total_jaccard
 
 
@@ -75,19 +77,19 @@ def get_results(args, H):
         pred_annolist = al.AnnoList()
 
         true_annolist = al.parse(args.test_boxes)
-        data_dir = os.path.join(os.path.dirname(args.test_boxes), '..')
+        data_dir = os.path.join(os.path.dirname(args.test_boxes))
+
+        false_positives, false_negatives, true_positives = 0,0,0
 
         image_dir = get_image_dir(args)
         subprocess.call('mkdir -p %s' % image_dir, shell=True)
-        for i in range(len(true_annolist)):
+        for i in range(len(true_annolist)): 
             true_anno = true_annolist[i]
-            idx = rtree.index.Index()
-            for i, rect in enumerate(true_anno.rects):
-                idx.insert(i, (rect.x1, rect.y1, rect.x2, rect.y2))
 
             orig_img = imread('%s/%s' % (data_dir, true_anno.imageName))[:,:,:3]
             img = imresize(orig_img, (H["image_height"], H["image_width"]), interp='cubic')
             feed = {x_in: img}
+
             (np_pred_boxes, np_pred_confidences) = sess.run([pred_boxes, pred_confidences], feed_dict=feed)
             pred_anno = al.Annotation()
             pred_anno.imageName = true_anno.imageName
@@ -98,35 +100,19 @@ def get_results(args, H):
             pred_anno = rescale_boxes((H["image_height"], H["image_width"]), pred_anno, orig_img.shape[0], orig_img.shape[1])
             pred_annolist.append(pred_anno)
 
-            false_positives = 0
-            true_positives = 0
-            false_negatives = 0
+            prediction = np.array([[r.x1, r.y1, r.x2, r.y2] for r in rects])
+            targets = np.array([[r.x1, r.y1, r.x2, r.y2] for r in true_anno.rects])
 
-            for rect in rects:
-                best_jaccard = -float('inf')
-                best_idx = None
-                for gt_idx in idx.intersection((rect.x1, rect.y1, rect.x2, rect.y2)):
-                    gt = true_anno.rects[gt_idx]
-                    intersection = (min(rect.x2, gt.x2) - max(rect.x1, gt.x1)) * (min(rect.y2, gt.y2) - max(rect.y1, gt.y1))
-                    rect_area = (rect.x2 - rect.x1) * (rect.y2 - rect.y1)
-                    gt_area = (gt.x2 - gt.x1) * (gt.y2 - gt.y1)
-                    union = rect_area + gt_area - intersection
-                    jaccard = intersection / union
-                    if jaccard > best_jaccard:
-                        best_jaccard = jaccard
-                        best_idx = gt_idx
-                if best_idx is None or best_jaccard < 0.2:
-                    false_positives += 1
-                    pass # False positive...
-                else:
-                    true_positives += 1
-                    # Remove this ground truth so nothing else can match with it.
-                    gt = true_anno.rects[best_idx]
-                    idx.delete(gt_idx, (gt.x1, gt.y1, gt.x2, gt.y2))
+            fp, fn, tp, jaccard = get_metrics(targets, prediction)
+            false_positives += fp
+            false_negatives += fn
+            true_positives += tp
 
-            false_negatives = idx.count((0,0,500,500))
+            precision = np.float64(true_positives)/(true_positives + false_positives)
+            recall = np.float64(true_positives)/(true_positives + false_negatives)
 
-            print('False positives: %d, False negatives: %d, True positives: %d' % (false_positives, false_negatives, true_positives))
+            print('[%d/%d]: False positives: %d, False negatives: %d, True positives: %d, Precision: %f, Recall: %f' % 
+                (i, len(true_annolist), false_positives, false_negatives, true_positives, precision, recall))
 
             if true_positives < (false_positives + false_negatives):
                 actual = orig_img.copy()
@@ -140,7 +126,6 @@ def get_results(args, H):
 
                 data = np.concatenate([pred, actual], axis=1)
                 cv2.imwrite('test.jpg', data)
-                pdb.set_trace()
 
             imname = '%s/%s' % (image_dir, os.path.basename(true_anno.imageName))
             misc.imsave(imname, new_img)
@@ -169,24 +154,7 @@ def main():
     pred_boxes = '%s.%s%s' % (args.weights, expname, os.path.basename(args.test_boxes))
     true_boxes = '%s.gt_%s%s' % (args.weights, expname, os.path.basename(args.test_boxes))
 
-
     pred_annolist, true_annolist = get_results(args, H)
-    pred_annolist.save(pred_boxes)
-    true_annolist.save(true_boxes)
-
-    try:
-        rpc_cmd = './utils/annolist/doRPC.py --minOverlap %f %s %s' % (args.iou_threshold, true_boxes, pred_boxes)
-        print('$ %s' % rpc_cmd)
-        rpc_output = subprocess.check_output(rpc_cmd, shell=True)
-        print(rpc_output)
-        txt_file = [line for line in rpc_output.split('\n') if line.strip()][-1]
-        output_png = '%s/results.png' % get_image_dir(args)
-        plot_cmd = './utils/annolist/plotSimple.py %s --output %s' % (txt_file, output_png)
-        print('$ %s' % plot_cmd)
-        plot_output = subprocess.check_output(plot_cmd, shell=True)
-        print('output results at: %s' % plot_output)
-    except Exception as e:
-        print(e)
 
 if __name__ == '__main__':
     main()
