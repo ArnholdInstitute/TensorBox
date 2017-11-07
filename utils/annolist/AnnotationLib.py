@@ -715,7 +715,7 @@ def parseXML(filename):
 
     return annotations
 
-def parseJSON(filename):
+def parseJSON(filename, root_dir):
     filename = os.path.realpath(filename)
     name, ext = os.path.splitext(filename)
     assert ext == '.json'
@@ -726,7 +726,7 @@ def parseJSON(filename):
 
     for annotation in jdoc:
         anno = Annotation()
-        anno.imageName = annotation["image_path"]
+        anno.imageName = os.path.join(root_dir, annotation["image_path"])
 
         rects = []
         for annoRect in annotation["rects"]:
@@ -746,7 +746,7 @@ def parseJSON(filename):
 
     return annotations
     
-def parse(filename, abs_path=False):
+def parse(filename, abs_path=False, root_dir = './'):
     #print "Parsing: ", filename
     name, ext = os.path.splitext(filename)
     
@@ -760,7 +760,7 @@ def parse(filename, abs_path=False):
     elif(ext == ".pal"):
         annolist = PalLib.pal2al(PalLib.loadPal(filename));
     elif(ext == ".json"):
-        annolist = parseJSON(filename)
+        annolist = parseJSON(filename, root_dir)
     else:
         annolist = AnnoList([]);
 

@@ -1,4 +1,4 @@
-import numpy as np
+import numpy as np, pdb
 import random
 import json
 import os
@@ -6,6 +6,7 @@ import cv2
 import itertools
 from scipy.misc import imread, imresize
 import tensorflow as tf
+from augmentations import Augmentation
 
 from data_utils import (annotation_jitter, annotation_to_h5)
 from utils.annolist import AnnotationLib as al
@@ -37,7 +38,10 @@ def load_idl_tf(idlfile, H, jitter):
     that outputs a jittered version of a random image from the annolist
     that is mean corrected."""
 
-    annolist = al.parse(idlfile)
+    annolist = al.parse(idlfile, root_dir=H['data']['root_dir'] if 'root_dir' in H['data'] else './')
+
+    augmenter = Augmentation()
+
     annos = []
     for anno in annolist:
         anno.imageName = os.path.join(
@@ -58,6 +62,32 @@ def load_idl_tf(idlfile, H, jitter):
                     if len(I.shape) < 3:
                         continue
                     I = imread(anno.imageName, mode = 'RGB')
+
+                labels = np.array([[r.x1, r.y1, r.x2, r.y2] for r in anno.rects])
+                if len(labels) == 0:
+                    labels = np.zeros((0, 4))
+
+                I, labels, _ = augmenter(I, labels, np.zeros((len(labels), 1)))
+
+                # img = I[:, :, (2,1,0)].copy()
+                # for box in labels.round().astype(int):
+                #     cv2.rectangle(img, tuple(box[:2]), tuple(box[2:]), (0,0,255))
+
+                # cv2.imwrite('test.jpg', img)
+                # pdb.set_trace()
+
+                new_rects = []
+                for box in labels:
+                    r = al.AnnoRect()
+                    r.x1, r.y1, r.x2, r.y2 = box
+                    new_rects.append(r)
+
+                new_anno = al.Annotation()
+                new_anno.imageName = anno.imageName
+                new_anno.imagePath = anno.imagePath
+                new_anno.rects = new_rects
+                anno = new_anno
+
                 if I.shape[0] != H["image_height"] or I.shape[1] != H["image_width"]:
                     if epoch == 0:
                         anno = rescale_boxes(I.shape, anno, H["image_height"], H["image_width"])
@@ -141,7 +171,6 @@ def add_rectangles(H, orig_image, confidences, boxes, use_stitching=False, rnn_l
         acc_rects = stitch_rects(all_rects, tau)
     else:
         acc_rects = all_rects_r
-
 
     if show_suppressed:
         pairs = [(all_rects_r, (255, 0, 0))]
