@@ -11,6 +11,20 @@ def intersect(box_a, box_b):
     inter = np.clip((max_xy - min_xy), a_min=0, a_max=np.inf)
     return inter[:, 0] * inter[:, 1]
 
+class Print:
+    def __init__(self):
+        self.idx = 0
+
+    def __call__(self, image, boxes, label = None):
+        return 
+        img = image.copy()
+        for box in boxes.round().astype(int):
+            cv2.rectangle(img, tuple(box[:2]), tuple(box[2:]), (0, 0, 255))
+
+        cv2.imwrite('samples/image_%d.jpg' % self.idx, img)
+        self.idx += 1
+
+printer = Print()
 
 def jaccard_numpy(box_a, box_b):
     """Compute the jaccard overlap of two sets of boxes.  The jaccard overlap
@@ -331,6 +345,7 @@ class RandomMirror(object):
             image = image[:, ::-1]
             boxes = boxes.copy()
             boxes[:, 0::2] = width - boxes[:, 2::-2]
+            printer(image, boxes)
         return image, boxes, classes
 
 
@@ -380,6 +395,8 @@ class Rotate(object):
         boxes[:, 1] = warped_boxes[:, (1, 3)].min(axis=1)
         boxes[:, 3] = warped_boxes[:, (1, 3)].max(axis=1)
 
+        printer(warped, boxes)
+
         return warped, boxes, labels
 
 class PhotometricDistort(object):
@@ -403,32 +420,38 @@ class PhotometricDistort(object):
         else:
             distort = Compose(self.pd[1:])
         im, boxes, labels = distort(im, boxes, labels)
+
+        printer(im, boxes)
+
         return self.rand_light_noise(im, boxes, labels)
 
 def CropAndScale(image, boxes, labels):
     h, w, c = image.shape
-    x_crop = random.randint(1, 50)
-    y_crop = random.randint(1, 50)
+    crop = 75 # random.randint(1, 50)
     orig_boxes = boxes.copy()
 
-    if random.randint(2) == 0:
-        cropped = image[x_crop:, y_crop:, :]
-        boxes[:, (0, 2)] -= y_crop
-        boxes[:, (1, 3)] -= x_crop
+    if False and random.randint(2) == 0:
+        # crop out upper left corner
+        cropped = image[crop:, crop:, :]
+        boxes -= crop
     else:
-        cropped = image[:-x_crop, :-y_crop, :]
+        # Crop out lower right corner
+        cropped = image[:-crop, :-crop, :]
 
-    boxes[:, (0, 2)] = np.clip(boxes[:, (0, 2)], a_min = 0, a_max = w - y_crop)
-    boxes[:, (1, 3)] = np.clip(boxes[:, (1, 3)], a_min = 0, a_max = h - x_crop)
+    if len(boxes) > 0:
+        # Clip boxes to cropped dimensions
+        boxes[:, (0, 2)] = np.clip(boxes[:, (0, 2)], a_min = 0, a_max = w - crop)
+        boxes[:, (1, 3)] = np.clip(boxes[:, (1, 3)], a_min = 0, a_max = h - crop)
 
-    mask = (boxes[:, 2] - boxes[:, 0] > 3) & (boxes[:, 3] - boxes[:, 1] > 3)
-    boxes = boxes[mask, :]
-    labels = labels[mask]
+        mask = (boxes[:, 2] - boxes[:, 0] > 3) & (boxes[:, 3] - boxes[:, 1] > 3)
+        boxes = boxes[mask, :]
+        labels = labels[mask]
+        boxes[:, (0, 2)] = boxes[:, (0, 2)] / (w - crop) * w
+        boxes[:, (1, 3)] = boxes[:, (1, 3)] / (h - crop) * h
 
-    cropped = cv2.resize(cropped, (h, w))
+    cropped = cv2.resize(cropped, (w, h))
 
-    boxes[:, (0, 2)] = boxes[:, (0, 2)] / (w - y_crop) * w
-    boxes[:, (1, 3)] = boxes[:, (1, 3)] / (h - x_crop) * h
+    printer(cropped, boxes)
 
     return cropped, boxes, labels
 
@@ -446,26 +469,34 @@ def PerspectiveTransform(image, boxes, labels):
         [0, image.shape[0] - 1]
     ], dtype = 'float32')
 
+    h, w, c = image.shape
+
     M = cv2.getPerspectiveTransform(src, dst)
-    warped = cv2.warpPerspective(image, M, image.shape[:2])
+    warped = cv2.warpPerspective(image, M, (w, h))
 
-    temp = boxes.copy()
-    temp[:, :2] = cv2.perspectiveTransform(np.expand_dims(boxes[:, :2], 0), M)
-    temp[:, 2:] = cv2.perspectiveTransform(np.expand_dims(boxes[:, 2:], 0), M)
+    if len(boxes) > 0:
+        temp = boxes.copy()
+        temp[:, :2] = cv2.perspectiveTransform(np.expand_dims(boxes[:, :2], 0), M)
+        temp[:, 2:] = cv2.perspectiveTransform(np.expand_dims(boxes[:, 2:], 0), M)
 
-    warped_boxes = temp.copy()
+        warped_boxes = temp.copy()
 
-    warped_boxes[:, 0] = temp[:, (0, 2)].min(axis=1)
-    warped_boxes[:, 1] = temp[:, (1, 3)].min(axis=1)
-    warped_boxes[:, 2] = temp[:, (0, 2)].max(axis=1)
-    warped_boxes[:, 3] = temp[:, (1, 3)].max(axis=1)
+        warped_boxes[:, 0] = temp[:, (0, 2)].min(axis=1)
+        warped_boxes[:, 1] = temp[:, (1, 3)].min(axis=1)
+        warped_boxes[:, 2] = temp[:, (0, 2)].max(axis=1)
+        warped_boxes[:, 3] = temp[:, (1, 3)].max(axis=1)
 
-    warped_boxes[:, (0, 2)] = np.clip(warped_boxes[:, (0, 2)], a_min=0, a_max=image.shape[1])
-    warped_boxes[:, (1, 3)] = np.clip(warped_boxes[:, (1, 3)], a_min=0, a_max=image.shape[0])
-    mask = (warped_boxes[:, 2] - warped_boxes[:, 0] > 3) & (warped_boxes[:, 3] - warped_boxes[:, 1] > 3)
-    warped_boxes = warped_boxes[mask]
+        warped_boxes[:, (0, 2)] = np.clip(warped_boxes[:, (0, 2)], a_min=0, a_max=image.shape[1])
+        warped_boxes[:, (1, 3)] = np.clip(warped_boxes[:, (1, 3)], a_min=0, a_max=image.shape[0])
+        mask = (warped_boxes[:, 2] - warped_boxes[:, 0] > 3) & (warped_boxes[:, 3] - warped_boxes[:, 1] > 3)
+        warped_boxes = warped_boxes[mask]
+        labels = labels[mask]
+    else:
+        warped_boxes = boxes
 
-    return warped, warped_boxes, labels[mask]
+    printer(warped, warped_boxes)
+
+    return warped, warped_boxes, labels
 
 def Warp(image, boxes, labels):
     rint = random.randint(0, 2)
@@ -492,19 +523,25 @@ class Augmentation(object):
 if __name__ == '__main__':
     import json, pdb, os
 
-    data = json.load(open('../../data/train_data.json'))
+    data = json.load(open('../../data/all_train.json'))
 
     img = cv2.imread(os.path.join('../../data', data[0]['image_path']))
     boxes = np.array([[r['x1'], r['y1'], r['x2'], r['y2']] for r in data[0]['rects']])
-    img = img[:300, :300, :]
-    boxes = np.clip(boxes, a_min=0, a_max=300)
-    mask = (boxes[:, 2] - boxes[:, 0] > 3) & (boxes[:, 3] - boxes[:, 1] > 3)
-    boxes = boxes[mask]
 
-    aug = SSDAugmentation()
-    aug(img, boxes, np.ones((len(boxes))))
+    aug = Augmentation()
 
-    pdb.set_trace()
+    for sample in data:
+        img = cv2.imread(os.path.join('../../data', sample['image_path']))
+        boxes = np.array([[r['x1'], r['y1'], r['x2'], r['y2']] for r in sample['rects']])
+        printer(img, boxes)
+
+        img, boxes, labels = CropAndScale(img, boxes, np.ones((len(boxes))))
+        PerspectiveTransform(img, boxes, labels)
+        pdb.set_trace()
+
+        # aug(img, boxes, np.ones((len(boxes))))
+        # print(sample['image_path'])
+
 
 
 
