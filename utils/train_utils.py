@@ -69,13 +69,6 @@ def load_idl_tf(idlfile, H, jitter):
 
                 I, labels, _ = augmenter(I, labels, np.zeros((len(labels), 1)))
 
-                # img = I[:, :, (2,1,0)].copy()
-                # for box in labels.round().astype(int):
-                #     cv2.rectangle(img, tuple(box[:2]), tuple(box[2:]), (0,0,255))
-
-                # cv2.imwrite('test.jpg', img)
-                # pdb.set_trace()
-
                 new_rects = []
                 for box in labels:
                     r = al.AnnoRect()
@@ -88,9 +81,15 @@ def load_idl_tf(idlfile, H, jitter):
                 new_anno.rects = new_rects
                 anno = new_anno
 
+                # img = I[:, :, (2,1,0)].copy()
+                # for r in anno.rects:
+                #     cv2.rectangle(img, tuple(map(int, (r.x1, r.y1))), tuple(map(int, (r.x2, r.y2))), (0,0,255))
+
+                # cv2.imwrite('test.jpg', img)
+                # pdb.set_trace()
+
                 if I.shape[0] != H["image_height"] or I.shape[1] != H["image_width"]:
-                    if epoch == 0:
-                        anno = rescale_boxes(I.shape, anno, H["image_height"], H["image_width"])
+                    anno = rescale_boxes(I.shape, anno, H["image_height"], H["image_width"])
                     I = imresize(I, (H["image_height"], H["image_width"]), interp='cubic')
                 if jitter:
                     jitter_scale_min=0.9
