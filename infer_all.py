@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import tensorflow as tf, os, json, subprocess, cv2, argparse, pdb, rtree, numpy as np, psycopg2
+import tensorflow as tf, os, json, subprocess, cv2, argparse, pdb, rtree, numpy as np, psycopg2, md5
 from scipy.misc import imread, imresize
 from scipy import misc
 from train import build_forward
@@ -21,7 +21,7 @@ def process_results(queue, H, args, db_args, data_dir, ts):
         if item is None:
             return
 
-        (np_pred_boxes, np_pred_confidences), meta = item
+        (np_pred_boxes, np_pred_confidences), meta, VERSION = item
         pred_anno = al.Annotation()
         rects = get_rectangles(
             H, 
@@ -41,9 +41,9 @@ def process_results(queue, H, args, db_args, data_dir, ts):
 
         for r in rects:
             cur.execute("""
-                INSERT INTO buildings.buildings (filename, minx, miny, maxx, maxy, roff, coff, score, project, ts)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (filename, int(r.x1), int(r.y1), int(r.x2), int(r.y2), roff, coff, r.score, args.country, ts))
+                INSERT INTO buildings.buildings (filename, minx, miny, maxx, maxy, roff, coff, score, project, ts, version)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::uuid)
+            """, (filename, int(r.x1), int(r.y1), int(r.x2), int(r.y2), roff, coff, r.score, args.country, ts, VERSION))
         
         if done:
             cur.execute("UPDATE buildings.images SET last_tested=%s WHERE project=%s AND filename=%s", (ts, args.country, filename))
@@ -51,6 +51,8 @@ def process_results(queue, H, args, db_args, data_dir, ts):
             print('Committed image: %s' % filename)
 
 def infer_all(args, H, db_args):
+    VERSION = md5.new(args.weights).hexdigest()
+    
     conn = psycopg2.connect(**db_args)
     tf.reset_default_graph()
     H["grid_width"] = H["image_width"] / H["region_size"]
@@ -86,7 +88,7 @@ def infer_all(args, H, db_args):
             img = imresize(orig_img, (H["image_height"], H["image_width"]), interp='cubic')
             feed = {x_in: img}
             result = sess.run([pred_boxes, pred_confidences], feed_dict=feed)
-            queue.put((result, meta))
+            queue.put((result, meta, VERSION))
     for p in ps:
         queue.put(None)
         p.join()
