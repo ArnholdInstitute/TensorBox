@@ -47,7 +47,8 @@ def RandomSampler(conn, country):
 
 def helper(rows, thread_id, queue, cache_images, data_dir):
     s3 = boto3.client('s3')
-    for filename, in rows:
+    N = len(rows)
+    for img_num, (filename,) in enumerate(rows):
         if not os.path.exists(os.path.join(data_dir, filename)):
             attempts = 0
             while attempts < 3:
@@ -66,7 +67,6 @@ def helper(rows, thread_id, queue, cache_images, data_dir):
         else:
             img = io.imread(os.path.join(data_dir, filename))[:-25, :, :]
 
-        img_num = 0
         for i in range(0, img.shape[0], SIZE):
             for j in range(0, img.shape[1], SIZE):
                 x, y = i, j
@@ -81,8 +81,7 @@ def helper(rows, thread_id, queue, cache_images, data_dir):
                     orig,
                     (x, y, filename, valid_geom, done, SIZE, SIZE)
                 ))
-                print('Done putting image %d' % img_num)
-                img_num += 1
+        print('Thread %d: done with %d/%d' % (thread_id, img_num, N))
     queue.put(None)
 
 def InferenceGenerator(conn, country, area_to_cover = None, transform=lambda x: x, cache=True, data_dir = './', threads=1):
@@ -93,7 +92,7 @@ def InferenceGenerator(conn, country, area_to_cover = None, transform=lambda x: 
 
     condition = ' AND last_tested IS NULL'
     if area_to_cover:
-        condition = " AND ST_Contains(ST_GeomFromText('%s', 4326), shifted)" % area_to_cover.wkt
+        condition += " AND ST_Intersects(ST_GeomFromText('%s', 4326), shifted)" % area_to_cover.wkt
 
     with conn.cursor() as cur:
         cur.execute("""
