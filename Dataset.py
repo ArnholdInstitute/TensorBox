@@ -48,7 +48,7 @@ def RandomSampler(conn, country):
 def helper(rows, thread_id, queue, cache_images, data_dir):
     s3 = boto3.client('s3')
     N = len(rows)
-    for img_num, (filename,) in enumerate(rows):
+    for img_num, (filename, img_geom) in enumerate(rows):
         if not os.path.exists(os.path.join(data_dir, filename)):
             attempts = 0
             while attempts < 3:
@@ -79,7 +79,7 @@ def helper(rows, thread_id, queue, cache_images, data_dir):
                 done = i + SIZE >= img.shape[0] and j+SIZE >= img.shape[1]
                 queue.put((
                     orig,
-                    (x, y, filename, valid_geom, done, SIZE, SIZE)
+                    (x, y, filename, valid_geom, done, SIZE, SIZE, img_geom)
                 ))
         print('Thread %d: done with %d/%d' % (thread_id, img_num, N))
     queue.put(None)
@@ -96,7 +96,7 @@ def InferenceGenerator(conn, country, area_to_cover = None, transform=lambda x: 
 
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT filename FROM buildings.images
+            SELECT filename, ST_AsGeoJSON(shifted)::json FROM buildings.images
             WHERE project=%%s %s
         """ % condition, (country,))
 

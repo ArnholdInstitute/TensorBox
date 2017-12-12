@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import tensorflow as tf, os, json, subprocess, cv2, argparse, pdb, rtree, numpy as np, psycopg2, md5
+import tensorflow as tf, os, json, subprocess, cv2, argparse, pdb, rtree, numpy as np, psycopg2, md5, math
 from scipy.misc import imread, imresize
 from scipy import misc
 from train import build_forward
@@ -11,7 +11,26 @@ from multiprocessing import Queue, Process
 from Dataset import InferenceGenerator
 from datetime import datetime
 from dotenv import load_dotenv, find_dotenv
+from geopy.distance import VincentyDistance
 load_dotenv(find_dotenv())
+
+def gsd(lat, zoom):
+    """
+    Computes the Ground Sample Distance (GSD).  More details can be found
+    here: https://msdn.microsoft.com/en-us/library/bb259689.aspx
+
+    Args:
+        lat : float - latitude of the GSD of interest
+        zoom : int - zoom level (WMTS)
+    """
+    return (math.cos(lat * math.pi / 180) * 2 * math.pi * 6378137) / (256 * 2**zoom)
+
+def raster_to_proj(x, y, img_geom, ref_point):
+    (lon,), (lat,) = img_geom.centroid.xy
+    return(
+        VincentyDistance(meters=gsd(lat, 18) * x).destination(point=ref_point, bearing=90).longitude,
+        VincentyDistance(meters=gsd(lat, 18) * y).destination(point=ref_point, bearing=180).latitude
+    )
 
 def process_results(queue, H, args, db_args, data_dir, ts):
     conn = psycopg2.connect(**db_args)
@@ -33,17 +52,26 @@ def process_results(queue, H, args, db_args, data_dir, ts):
             tau=args.tau, 
         )
 
-        (roff, coff, filename, valid_geom, done, height, width) = meta
+        (roff, coff, filename, valid_geom, done, height, width, img_geom) = meta
+        img_geom = shape(img_geom)
 
         pred_anno.rects = rects
         pred_anno.imagePath = os.path.abspath(data_dir)
         pred_anno = rescale_boxes((H["image_height"], H["image_width"]), pred_anno, height, width)
 
+        bounds = img_geom.bounds
+        ref_point = (bounds[3], bounds[0]) # top left corner
+
+
         for r in rects:
+            minx, miny = raster_to_proj(r.x1 + coff, r.y1 + roff, img_geom, ref_point)
+            maxx, maxy = raster_to_proj(r.x2 + coff, r.y2 + roff, img_geom, ref_point)
+            building = box(minx, miny, maxx, maxy)
+
             cur.execute("""
-                INSERT INTO buildings.buildings (filename, minx, miny, maxx, maxy, roff, coff, score, project, ts, version)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::uuid)
-            """, (filename, int(r.x1), int(r.y1), int(r.x2), int(r.y2), roff, coff, r.score, args.country, ts, VERSION))
+                INSERT INTO buildings.buildings (filename, minx, miny, maxx, maxy, roff, coff, score, project, ts, version, geom)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::uuid, ST_GeomFromText(%s, 4326))
+            """, (filename, int(r.x1), int(r.y1), int(r.x2), int(r.y2), roff, coff, r.score, args.country, ts, VERSION, building.wkt))
         
         if done:
             cur.execute("UPDATE buildings.images SET last_tested=%s WHERE project=%s AND filename=%s", (ts, args.country, filename))
@@ -83,12 +111,13 @@ def infer_all(args, H, db_args):
         area_to_cover = None
         if args.boundary:
             area_to_cover = shape(json.load(open(args.boundary)))
-        generator = InferenceGenerator(conn, args.country, area_to_cover=area_to_cover, data_dir='../data', threads=4)
+        generator = InferenceGenerator(conn, args.country, area_to_cover=area_to_cover, data_dir='../data', threads=8)
         for orig_img, meta in generator:
             img = imresize(orig_img, (H["image_height"], H["image_width"]), interp='cubic')
             feed = {x_in: img}
             result = sess.run([pred_boxes, pred_confidences], feed_dict=feed)
             queue.put((result, meta, VERSION))
+
     for p in ps:
         queue.put(None)
         p.join()
