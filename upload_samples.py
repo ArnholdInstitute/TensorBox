@@ -70,11 +70,11 @@ def process_file(filename, boxes, img_data, country, img_geom):
         res = requests.post('https://aighmapper.ml/sample/%s' % country.replace('-overlap', ''), data=data, files=files)
         if res.status_code == 200:
             print('Successfully uploaded sample to server!')
-            pdb.set_trace()
+            return True
         else:
             print(res.text)
-            return False
-    return True
+            raise Exception(res.text)
+    return False
 
 def sample(args, H, conn):
     tf.reset_default_graph()
@@ -103,18 +103,18 @@ def sample(args, H, conn):
         upload_samples = 0
         while upload_samples < args.max_samples:
             if current['filename'] and current['filename'] != filename:
-                process_file(current['filename'], np.array(current['boxes']), current['whole_img'], args.country, current['img_geom'])
+                res = process_file(current['filename'], np.array(current['boxes']), current['whole_img'], args.country, current['img_geom'])
                 cur.execute("UPDATE buildings.images SET done=true WHERE project=%s AND filename=%s", (args.country, current['filename']))
                 conn.commit()
                 print('Done with %s' % current['filename'])
                 current = {'filename' : filename, 'whole_img' : whole_img, 'img_geom' : img_geom, 'boxes' : []}
-
+                upload_samples += 1 if res else 0
 
             img = imresize(img, (H["image_height"], H["image_width"]), interp='cubic')
             feed = {x_in: img}
             (np_pred_boxes, np_pred_confidences) = sess.run([pred_boxes, pred_confidences], feed_dict=feed)
             pred_anno = al.Annotation()
-            new_img, rects = add_rectangles(H, [img], np_pred_confidences, np_pred_boxes,
+            new_img, rects, _ = add_rectangles(H, [img], np_pred_confidences, np_pred_boxes,
                                             use_stitching=True, rnn_len=H['rnn_len'], min_conf=args.min_conf, tau=args.tau, show_suppressed=args.show_suppressed)
             pred_anno.rects = rects
             pred_anno = rescale_boxes((H["image_height"], H["image_width"]), pred_anno, orig.shape[0], orig.shape[1])
