@@ -1,0 +1,108 @@
+import tensorflow as tf, os, cv2, pdb, numpy as np, time, json, pandas
+from scipy.misc import imread, imresize
+from scipy import misc
+from train import build_forward
+from utils.annolist import AnnotationLib as al
+from utils.train_utils import add_rectangles, rescale_boxes
+from shapely.geometry import MultiPolygon, box
+
+pandas.options.mode.chained_assignment = None
+
+def get_image_dir(weights, test_boxes):
+    weights_iteration = int(weights.split('-')[-1])
+    return '%s/images_%s_%d' % (os.path.dirname(weights), os.path.basename(test_boxes)[:-5], weights_iteration)
+
+class TensorBox:
+    def __init__(self, weights):
+        self.weights = weights
+        hypes_file = '%s/hypes.json' % os.path.dirname(weights)
+        with open(hypes_file, 'r') as f:
+            self.H = json.load(f)
+
+        tf.reset_default_graph()
+        self.H["grid_width"] = self.H["image_width"] / self.H["region_size"]
+        self.H["grid_height"] = self.H["image_height"] / self.H["region_size"]
+
+        self.x_in = tf.placeholder(tf.float32, name='x_in', shape=[self.H['image_height'], self.H['image_width'], 3])
+        pred_boxes, pred_logits, pred_confidences, pred_confs_deltas, pred_boxes_deltas = build_forward(self.H, tf.expand_dims(self.x_in, 0), 'test', reuse=None)
+        grid_area = self.H['grid_height'] * self.H['grid_width']
+        pred_confidences = tf.reshape(tf.nn.softmax(tf.reshape(pred_confs_deltas, [grid_area * self.H['rnn_len'], 2])), [grid_area, self.H['rnn_len'], 2])
+        if self.H['reregress']:
+            pred_boxes = pred_boxes + pred_boxes_deltas
+
+        self.pred_boxes = pred_boxes
+        self.pred_confidences = pred_confidences
+        saver = tf.train.Saver()
+
+        self.session = tf.Session()
+
+        self.session.run(tf.global_variables_initializer())
+        saver.restore(self.session, weights)
+
+    def close_session(self):
+        self.session.close()
+
+    def predict_image(self, image, threshold, eval_mode = True):
+        """
+        Infer buildings for a single image.
+        Inputs:
+            image :: n x m x 3 ndarray - Should be in RGB format
+        """
+
+        orig_img = image.copy()[:,:,:3]
+        img = imresize(orig_img, (self.H["image_height"], self.H["image_width"]), interp='cubic')
+        feed = {self.x_in: img}
+
+        t0 = time.time()
+        (np_pred_boxes, np_pred_confidences) = self.session.run([self.pred_boxes, self.pred_confidences], feed_dict=feed)
+        total_time = time.time() - t0
+
+        new_img, rects, all_rects = add_rectangles(
+            self.H, 
+            [img], 
+            np_pred_confidences, 
+            np_pred_boxes,
+            use_stitching=True, 
+            rnn_len=self.H['rnn_len'], 
+            min_conf=threshold, 
+            tau=0.25, 
+            show_suppressed=False
+        )
+
+        pred_anno = al.Annotation()
+        pred_anno.rects = all_rects
+        pred_anno = rescale_boxes((self.H["image_height"], self.H["image_width"]), pred_anno, orig_img.shape[0], orig_img.shape[1])
+
+        pred_rects = pandas.DataFrame([[r.x1, r.y1, r.x2, r.y2, r.score] for r in all_rects], columns=['x1', 'y1', 'x2', 'y2', 'score'])
+
+        if eval_mode:
+            return pred_rects[pred_rects['score'] > threshold], pred_rects, total_time
+        else:
+            return pred_rects
+
+
+    def predict_all(self, test_boxes_file, threshold, data_dir = None):
+        test_boxes = json.load(open(test_boxes_file))
+        true_annolist = al.parse(test_boxes_file)
+        if data_dir is None:
+            data_dir = os.path.join(os.path.dirname(test_boxes_file))
+        
+        total_time = 0.0
+
+        for i in range(len(true_annolist)):
+            true_anno = true_annolist[i]
+
+            orig_img = imread('%s/%s' % (data_dir, true_anno.imageName))[:,:,:3]
+
+            pred, all_rects, time = self.predict_image(orig_img, threshold, eval_mode = True)
+
+            pred['image_id'] = i
+            all_rects['image_id'] = i
+
+            yield pred, all_rects, test_boxes[i]
+
+
+
+
+
+

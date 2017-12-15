@@ -9,9 +9,9 @@ import tensorflow as tf
 from augmentations import Augmentation
 
 from data_utils import (annotation_jitter, annotation_to_h5)
-from utils.annolist import AnnotationLib as al
+from annolist import AnnotationLib as al
 from rect import Rect
-from utils import tf_concat
+from . import tf_concat
 
 def rescale_boxes(current_shape, anno, target_height, target_width, test=False):
     x_scale = target_width / float(current_shape[1])
