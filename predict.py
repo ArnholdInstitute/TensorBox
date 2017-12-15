@@ -42,7 +42,7 @@ class TensorBox:
     def close_session(self):
         self.session.close()
 
-    def predict_image(self, image, threshold, eval_mode = True):
+    def predict_image(self, image, threshold, eval_mode = False):
         """
         Infer buildings for a single image.
         Inputs:
@@ -78,7 +78,7 @@ class TensorBox:
         if eval_mode:
             return pred_rects[pred_rects['score'] > threshold], pred_rects, total_time
         else:
-            return pred_rects
+            return pred_rects[pred_rects['score'] > threshold]
 
 
     def predict_all(self, test_boxes_file, threshold, data_dir = None):
