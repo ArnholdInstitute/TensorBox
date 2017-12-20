@@ -5,6 +5,7 @@ from train import build_forward
 from utils.annolist import AnnotationLib as al
 from utils.train_utils import add_rectangles, rescale_boxes
 from shapely.geometry import MultiPolygon, box
+from subprocess import check_output
 
 pandas.options.mode.chained_assignment = None
 
@@ -13,7 +14,21 @@ def get_image_dir(weights, test_boxes):
     return '%s/images_%s_%d' % (os.path.dirname(weights), os.path.basename(test_boxes)[:-5], weights_iteration)
 
 class TensorBox:
-    def __init__(self, weights):
+    def __init__(self, weights = None):
+        if weights is None:
+            if not os.path.exists('weights'):
+                os.mkdir('weights')
+            download_url = 'https://github.com/ArnholdInstitute/ColdSpots/releases/download/1.0/tensorbox.zip'
+            if not os.path.exists('weights/tensorbox'):
+                print('Downloading weights for tensorbox')
+                if not os.path.exists(os.path.join('weights/tensorbox.zip')):
+                    check_output(['wget', download_url, '-O', 'weights/tensorbox.zip'])
+                print('Unzipping...')
+                check_output(['unzip', 'weights/tensorbox.zip', '-d', 'weights'])
+            description = json.load(open('weights/tensorbox/description.json'))
+            weights = os.path.join('weights/tensorbox', description['weights'])
+            print('Building model...')
+            
         self.weights = weights
         hypes_file = '%s/hypes.json' % os.path.dirname(weights)
         with open(hypes_file, 'r') as f:
