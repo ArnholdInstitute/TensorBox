@@ -86,6 +86,18 @@ For example, the following is a screenshot of a Tensorboard comparing two differ
     
 <img src=http://russellsstewart.com/s/tensorbox/tensorboard_loss.png></img>
 
+## Citation
+<pre>
+<code>
+@article{stewart2016tensorbox,
+  Author = {Stewart, Russell},
+  Title = {TensorBox: A Fast Object Detection Framework in TensorFlow},
+  Year = {2016}
+}
+</code>
+</pre>
 ## Community
 
 If you're new to object detection, and want to chat with other people that are working on similar problems, check out the community chat at https://gitter.im/Russell91/TensorBox, especially on Saturdays.
+
+
