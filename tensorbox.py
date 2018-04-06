@@ -14,6 +14,8 @@ def get_image_dir(weights, test_boxes):
     weights_iteration = int(weights.split('-')[-1])
     return '%s/images_%s_%d' % (os.path.dirname(weights), os.path.basename(test_boxes)[:-5], weights_iteration)
 
+NAME = 'TensorBox'
+
 class TensorBox:
     name = 'TensorBox'
 
@@ -60,7 +62,7 @@ class TensorBox:
 
         return zipfile
 
-    def __init__(self, weights = None):
+    def __init__(self, weights = None, cuda = True):
         if weights is None:
             if not os.path.exists('weights'):
                 os.mkdir('weights')
@@ -103,7 +105,7 @@ class TensorBox:
     def close_session(self):
         self.session.close()
 
-    def predict_image(self, image, threshold, eval_mode = False):
+    def predict_image(self, image):
         """
         Infer buildings for a single image.
         Inputs:
@@ -125,7 +127,7 @@ class TensorBox:
             np_pred_boxes,
             use_stitching=True, 
             rnn_len=self.H['rnn_len'], 
-            min_conf=threshold, 
+            min_conf=0.5, # only affects `rects`, not `all_rects`
             tau=0.25, 
             show_suppressed=False
         )
@@ -136,32 +138,21 @@ class TensorBox:
 
         pred_rects = pandas.DataFrame([[r.x1, r.y1, r.x2, r.y2, r.score] for r in all_rects], columns=['x1', 'y1', 'x2', 'y2', 'score'])
 
-        if eval_mode:
-            return pred_rects[pred_rects['score'] > threshold], pred_rects, total_time
-        else:
-            return pred_rects[pred_rects['score'] > threshold]
+        return pred_rects
 
-
-    def predict_all(self, test_boxes_file, threshold, data_dir = None):
-        test_boxes = json.load(open(test_boxes_file))
+    def predict_all(self, test_boxes_file, data_dir = None):
+        annos = json.load(open(test_boxes_file))
         true_annolist = al.parse(test_boxes_file)
         if data_dir is None:
             data_dir = os.path.join(os.path.dirname(test_boxes_file))
-        
+
         total_time = 0.0
 
-        for i in range(len(true_annolist)):
-            true_anno = true_annolist[i]
-
-            orig_img = imread('%s/%s' % (data_dir, true_anno.imageName))[:,:,:3]
-
-            pred, all_rects, time = self.predict_image(orig_img, threshold, eval_mode = True)
-
-            pred['image_id'] = i
-            all_rects['image_id'] = i
-
-            yield pred, all_rects, test_boxes[i]
-
+        for anno in annos:
+            img_data = imread(os.path.join(data_dir, anno['image_path']))
+            rects = self.predict_image(img_data)
+            rects['image_id'] = anno['image_path']
+            yield rects
 
 
 
