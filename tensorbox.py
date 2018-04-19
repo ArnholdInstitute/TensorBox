@@ -1,4 +1,4 @@
-import tensorflow as tf, os, cv2, pdb, numpy as np, time, json, pandas, glob, md5
+import tensorflow as tf, os, cv2, pdb, numpy as np, time, json, pandas, glob, hashlib
 from scipy.misc import imread, imresize
 from scipy import misc
 from train import build_forward
@@ -24,7 +24,7 @@ class TensorBox:
         '''
         Create an MD5 hash from a models weight file.
         Arguments:
-            path : str - path to TensorBox checkpoint
+            path : str - path to RetinaNet checkpoint
         '''
         dirs = path.split('/')
         if 'TensorBox' in dirs:
@@ -33,7 +33,9 @@ class TensorBox:
         else:
             path = os.path.join('TensorBox', path)
 
-        return md5.new('/'.join(path[-4:])).hexdigest()
+        md5 = hashlib.md5()
+        md5.update(path.encode('utf-8'))
+        return md5.hexdigest()
 
     @classmethod
     def zip_weights(cls, path, base_dir='./'):
