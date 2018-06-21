@@ -33,16 +33,18 @@ def load_idl_tf(idlfile, H, jitter):
     """Take the idlfile and net configuration and create a generator
     that outputs a jittered version of a random image from the annolist
     that is mean corrected."""
-
+    print("HOLLLAAAA")
+    print(idlfile)
     annolist = al.parse(idlfile, root_dir=H['data']['root_dir'] if 'root_dir' in H['data'] else './')
-
+    print(annolist)
     augmenter = Augmentation()
 
     annos = []
     for anno in annolist:
-        anno.imageName = os.path.join(
-            os.path.dirname(os.path.realpath(idlfile)), anno.imageName)
+	#anno.imageName = os.path.join(os.path.dirname(os.path.realpath(idlfile)), str(anno.imageName.split("/")[3]))
+        anno.imageName = os.path.join(os.path.dirname(os.path.realpath(idlfile)), anno.imageName)
         annos.append(anno)
+	print(anno.imageName)
     random.seed(0)
     if H['data']['truncate_data']:
         annos = annos[:10]
@@ -115,7 +117,8 @@ def make_sparse(n, d):
 
 def load_data_gen(H, phase, jitter):
     grid_size = H['grid_width'] * H['grid_height']
-
+    print("MIHIRRRR")
+    print("YEEEHAH")
     data = load_idl_tf(H["data"]['%s_idl' % phase], H, jitter={'train': jitter, 'test': False}[phase])
 
     for d in data:
@@ -206,6 +209,11 @@ def add_rectangles(H, orig_image, confidences, boxes, use_stitching=False, rnn_l
                 conf = np.max(confidences_r[0, y, x, n, 1:])
                 all_rects[y][x].append(Rect(abs_cx,abs_cy,w,h,conf))
 
+
+    print("mihir1")
+    print(len(all_rects))
+
+
     all_rects_r = [r for row in all_rects for cell in row for r in cell]
     if use_stitching:
         from stitch_wrapper import stitch_rects
@@ -213,6 +221,10 @@ def add_rectangles(H, orig_image, confidences, boxes, use_stitching=False, rnn_l
     else:
         acc_rects = all_rects_r
 
+    print("mihir2")
+    print(len(all_rects))
+    print(len(acc_rects))
+    
     if show_suppressed:
         pairs = [(all_rects_r, (255, 0, 0))]
     else:
@@ -242,6 +254,9 @@ def add_rectangles(H, orig_image, confidences, boxes, use_stitching=False, rnn_l
         if rect.confidence > min_conf:
             rects.append(r)
 
+
+    print("mihir3")
+    print(len(rects))
     return image, rects, all_rects
 
 def to_x1y1x2y2(box):

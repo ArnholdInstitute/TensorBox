@@ -31,6 +31,7 @@ class TensorBox:
             
         self.weights = weights
         hypes_file = '%s/hypes.json' % os.path.dirname(weights)
+	print(hypes_file)
         with open(hypes_file, 'r') as f:
             self.H = json.load(f)
 

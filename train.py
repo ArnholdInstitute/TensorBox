@@ -12,6 +12,7 @@ import threading
 from scipy import misc
 import tensorflow as tf
 import numpy as np
+import sys
 from distutils.version import LooseVersion
 if LooseVersion(tf.__version__) >= LooseVersion('1.0'):
     rnn_cell = tf.contrib.rnn
@@ -247,7 +248,9 @@ def build_forward_backward(H, x, phase, boxes, flags):
         outer_boxes = tf.reshape(boxes, [outer_size, H['rnn_len'], 4])
         outer_flags = tf.cast(tf.reshape(flags, [outer_size, H['rnn_len']]), 'int32')
         if H['use_lstm']:
-            hungarian_module = tf.load_op_library('utils/hungarian/hungarian.so')
+	    print("YAAAAAAAAAAAAAAAAAAAAAAAAAHAH")
+	    os.listdir('TensorBox/utils/hungarian')
+            hungarian_module = tf.load_op_library('TensorBox/utils/hungarian/hungarian.so')
             assignments, classes, perm_truth, pred_mask = (
                 hungarian_module.hungarian(pred_boxes, outer_boxes, outer_flags, H['solver']['hungarian_iou']))
         else:
@@ -315,8 +318,13 @@ def build(H, q):
 
     #gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
     gpu_options = tf.GPUOptions()
-    print(gpu_options)
+    #print(gpu_options)
     config = tf.ConfigProto(gpu_options=gpu_options)
+    #print("HOOOLAAAA")
+    #print(os.environ['CUDA_VISIBLE_DEVICES'])
+    #print(config)
+    #print("hello?")
+    #sys.exit()
 
     learning_rate = tf.placeholder(tf.float32)
     if solver['opt'] == 'RMS':
@@ -458,11 +466,15 @@ def train(H, test_images):
         flush_secs=10
     )
 
+    print(config)
+    #sys.exit()
+
     with tf.Session(config=config) as sess:
         tf.train.start_queue_runners(sess=sess)
         for phase in ['train', 'test']:
             # enqueue once manually to avoid thread start delay
             gen = train_utils.load_data_gen(H, phase, jitter=H['solver']['use_jitter'])
+	    print(phase)
             d = gen.next()
             sess.run(enqueue_op[phase], feed_dict=make_feed(d))
             t = threading.Thread(target=thread_loop,
@@ -473,28 +485,35 @@ def train(H, test_images):
         tf.set_random_seed(H['solver']['rnd_seed'])
         sess.run(tf.global_variables_initializer())
         writer.add_graph(sess.graph)
-        weights_str = H['solver']['weights']
-        if len(weights_str) > 0:
-            print('Restoring from: %s' % weights_str)
-            saver.restore(sess, weights_str)
-        elif H['slim_basename'] == 'MobilenetV1':
-            saver.restore(sess, H['slim_ckpt'])
-        else :
-            gvars = [x for x in tf.global_variables() if x.name.startswith(H['slim_basename']) and H['solver']['opt'] not in x.name]
-            gvars = [x for x in gvars if not x.name.startswith("{}/AuxLogits".format(H['slim_basename']))]
-            init_fn = slim.assign_from_checkpoint_fn(
-                  '%s/data/%s' % (os.path.dirname(os.path.realpath(__file__)), H['slim_ckpt']),
-                  gvars,
-                  ignore_missing_vars=False)
+        #weights_str = H['solver']['weights']
+	#print("YEAAHOOOOO, here1")
+        #if len(weights_str) > 0:
+        #    print('Restoring from: %s' % weights_str)
+        #    saver.restore(sess, weights_str)
+        #elif H['slim_basename'] == 'MobilenetV1':
+        #    saver.restore(sess, H['slim_ckpt'])
+        #else :
+	#    print("here2")
+        #    gvars = [x for x in tf.global_variables() if x.name.startswith(H['slim_basename']) and H['solver']['opt'] not in x.name]
+        #    gvars = [x for x in gvars if not x.name.startswith("{}/AuxLogits".format(H['slim_basename']))]
+	#    print(gvars)
+	#    print("here3")
             #init_fn = slim.assign_from_checkpoint_fn(
+            #      '%s/data/%s' % (os.path.dirname(os.path.realpath(__file__)), H['slim_ckpt']),
+            #      gvars,
+            #      ignore_missing_vars=False)
+        #    init_fn = slim.assign_from_checkpoint_fn('%s/data/%s' % (os.path.dirname(os.path.realpath(__file__)), H['slim_ckpt']),gvars,ignore_missing_vars=False)
+
+ #init_fn = slim.assign_from_checkpoint_fn(
                   #'%s/data/inception_v1.ckpt' % os.path.dirname(os.path.realpath(__file__)),
                   #[x for x in tf.global_variables() if x.name.startswith('InceptionV1') and not H['solver']['opt'] in x.name])
-            init_fn(sess)
-
+	    #print("here4")
+            #init_fn(sess)#print("here5")
         # train model for N iterations
         start = time.time()
         max_iter = H['solver'].get('max_iter', 10000000)
         for i in xrange(max_iter):
+	    print("MIHIR HERRREE")
             display_iter = H['logging']['display_iter']
             adjusted_lr = (H['solver']['learning_rate'] *
                            0.5 ** max(0, (i / H['solver']['learning_rate_step']) - 2))
