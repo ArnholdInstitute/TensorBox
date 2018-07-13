@@ -18,10 +18,10 @@ class TensorBox:
         if weights is None:
             if not os.path.exists('weights'):
                 os.mkdir('weights')
-            download_url = 'https://github.com/ArnholdInstitute/ColdSpots/releases/download/1.0/tensorbox.zip'
             if not os.path.exists('weights/tensorbox'):
                 print('Downloading weights for tensorbox')
                 if not os.path.exists(os.path.join('weights/tensorbox.zip')):
+                    download_url = 'https://github.com/ArnholdInstitute/ColdSpots/releases/download/1.0/tensorbox.zip'
                     check_output(['wget', download_url, '-O', 'weights/tensorbox.zip'])
                 print('Unzipping...')
                 check_output(['unzip', 'weights/tensorbox.zip', '-d', 'weights'])
@@ -31,7 +31,6 @@ class TensorBox:
             
         self.weights = weights
         hypes_file = '%s/hypes.json' % os.path.dirname(weights)
-	print(hypes_file)
         with open(hypes_file, 'r') as f:
             self.H = json.load(f)
 
